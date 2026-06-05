@@ -2,13 +2,14 @@ import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import axios from "axios";
 
 const initialState = {
-  approvalURL: null,
+  clientSecret: null,   // ← replaces approvalURL
   isLoading: false,
   orderId: null,
   orderList: [],
   orderDetails: null,
 };
 
+// ── Create order + get Stripe clientSecret ────────────────────────────────────
 export const createNewOrder = createAsyncThunk(
   "/order/createNewOrder",
   async (orderData) => {
@@ -16,34 +17,29 @@ export const createNewOrder = createAsyncThunk(
       "http://localhost:5000/api/shop/order/create",
       orderData
     );
-
-    return response.data;
+    return response.data; // { success, clientSecret, orderId }
   }
 );
 
+// ── Confirm order after Stripe payment succeeds ───────────────────────────────
 export const capturePayment = createAsyncThunk(
   "/order/capturePayment",
-  async ({ paymentId, payerId, orderId }) => {
+  async ({ paymentIntentId, orderId }) => {  // ← paymentId+payerId → paymentIntentId
     const response = await axios.post(
       "http://localhost:5000/api/shop/order/capture",
-      {
-        paymentId,
-        payerId,
-        orderId,
-      }
+      { paymentIntentId, orderId }
     );
-
     return response.data;
   }
 );
 
+// ── Unchanged ─────────────────────────────────────────────────────────────────
 export const getAllOrdersByUserId = createAsyncThunk(
   "/order/getAllOrdersByUserId",
   async (userId) => {
     const response = await axios.get(
       `http://localhost:5000/api/shop/order/list/${userId}`
     );
-
     return response.data;
   }
 );
@@ -54,10 +50,11 @@ export const getOrderDetails = createAsyncThunk(
     const response = await axios.get(
       `http://localhost:5000/api/shop/order/details/${id}`
     );
-
     return response.data;
   }
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const shoppingOrderSlice = createSlice({
   name: "shoppingOrderSlice",
@@ -69,12 +66,13 @@ const shoppingOrderSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // createNewOrder
       .addCase(createNewOrder.pending, (state) => {
         state.isLoading = true;
       })
       .addCase(createNewOrder.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.approvalURL = action.payload.approvalURL;
+        state.clientSecret = action.payload.clientSecret; // ← was approvalURL
         state.orderId = action.payload.orderId;
         sessionStorage.setItem(
           "currentOrderId",
@@ -83,9 +81,24 @@ const shoppingOrderSlice = createSlice({
       })
       .addCase(createNewOrder.rejected, (state) => {
         state.isLoading = false;
-        state.approvalURL = null;
+        state.clientSecret = null; // ← was approvalURL
         state.orderId = null;
       })
+
+      // capturePayment
+      .addCase(capturePayment.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(capturePayment.fulfilled, (state) => {
+        state.isLoading = false;
+        state.clientSecret = null; // clear after order confirmed
+        state.orderId = null;
+      })
+      .addCase(capturePayment.rejected, (state) => {
+        state.isLoading = false;
+      })
+
+      // getAllOrdersByUserId — unchanged
       .addCase(getAllOrdersByUserId.pending, (state) => {
         state.isLoading = true;
       })
@@ -97,6 +110,8 @@ const shoppingOrderSlice = createSlice({
         state.isLoading = false;
         state.orderList = [];
       })
+
+      // getOrderDetails — unchanged
       .addCase(getOrderDetails.pending, (state) => {
         state.isLoading = true;
       })
